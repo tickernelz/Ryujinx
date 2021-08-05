@@ -1,6 +1,7 @@
 ﻿using Ryujinx.Common.Logging;
 using Ryujinx.Graphics.GAL;
 using Ryujinx.Graphics.Shader;
+using System;
 
 namespace Ryujinx.Graphics.Gpu.Shader
 {
@@ -12,6 +13,8 @@ namespace Ryujinx.Graphics.Gpu.Shader
         private readonly GpuContext _context;
         private readonly GpuChannel _channel;
         private readonly GpuAccessorState _state;
+        private readonly AttributeType[] _attributeTypes;
+        private readonly TransformFeedbackDescriptor[] _tfd;
         private readonly int _stageIndex;
         private readonly bool _compute;
         private readonly int _localSizeX;
@@ -26,12 +29,22 @@ namespace Ryujinx.Graphics.Gpu.Shader
         /// <param name="context">GPU context</param>
         /// <param name="channel">GPU channel</param>
         /// <param name="state">Current GPU state</param>
+        /// <param name="attributeTypes">Type of the vertex attributes consumed by the shader</param>
+        /// <param name="tfd">Transform feedback descriptors</param>
         /// <param name="stageIndex">Graphics shader stage index (0 = Vertex, 4 = Fragment)</param>
-        public GpuAccessor(GpuContext context, GpuChannel channel, GpuAccessorState state, int stageIndex)
+        public GpuAccessor(
+            GpuContext context,
+            GpuChannel channel,
+            GpuAccessorState state,
+            AttributeType[] attributeTypes,
+            TransformFeedbackDescriptor[] tfd,
+            int stageIndex)
         {
             _context = context;
             _channel = channel;
             _state = state;
+            _attributeTypes = attributeTypes;
+            _tfd = tfd;
             _stageIndex = stageIndex;
         }
 
@@ -98,6 +111,22 @@ namespace Ryujinx.Graphics.Gpu.Shader
         }
 
         /// <summary>
+        /// Gets the type of a vertex attribute at the given location.
+        /// </summary>
+        /// <param name="address">User attribute location</param>
+        /// <returns>Type of the attribute</returns>
+
+        public AttributeType QueryAttributeType(int location)
+        {
+            if (_attributeTypes != null)
+            {
+                return _attributeTypes[location];
+            }
+
+            return AttributeType.Float;
+        }
+
+        /// <summary>
         /// Queries Local Size X for compute shaders.
         /// </summary>
         /// <returns>Local Size X</returns>
@@ -161,6 +190,16 @@ namespace Ryujinx.Graphics.Gpu.Shader
             };
         }
 
+        public bool QueryProgramPointSize()
+        {
+            return _state.ProgramPointSizeEnable;
+        }
+
+        public float QueryPointSize()
+        {
+            return _state.PointSize;
+        }
+
         /// <summary>
         /// Queries host storage buffer alignment required.
         /// </summary>
@@ -212,6 +251,26 @@ namespace Ryujinx.Graphics.Gpu.Shader
                     handle,
                     cbufSlot);
             }
+        }
+
+        public bool QueryTransformDepthMinusOneToOne()
+        {
+            return _state.DepthMode;
+        }
+
+        public bool QueryTransformFeedbackEnabled()
+        {
+            return _tfd != null;
+        }
+
+        public ReadOnlySpan<byte> QueryTransformFeedbackVaryingLocations(int bufferIndex)
+        {
+            return _tfd[bufferIndex].VaryingLocations;
+        }
+
+        public int QueryTransformFeedbackStride(int bufferIndex)
+        {
+            return _tfd[bufferIndex].Stride;
         }
 
         /// <summary>

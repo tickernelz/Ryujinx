@@ -1,11 +1,11 @@
-﻿using OpenTK.Graphics;
-using OpenTK.Graphics.OpenGL;
+﻿using OpenTK.Graphics.OpenGL;
 using Ryujinx.Common.Configuration;
 using Ryujinx.Common.Logging;
 using Ryujinx.Graphics.GAL;
 using Ryujinx.Graphics.OpenGL.Image;
 using Ryujinx.Graphics.OpenGL.Queries;
 using Ryujinx.Graphics.Shader;
+using Ryujinx.Graphics.Shader.Translation;
 using System;
 
 namespace Ryujinx.Graphics.OpenGL
@@ -40,6 +40,8 @@ namespace Ryujinx.Graphics.OpenGL
         public string GpuRenderer { get; private set; }
         public string GpuVersion { get; private set; }
 
+        public bool PreferThreading => true;
+
         public Renderer()
         {
             _pipeline = new Pipeline();
@@ -52,7 +54,12 @@ namespace Ryujinx.Graphics.OpenGL
             ResourcePool = new ResourcePool();
         }
 
-        public IShader CompileShader(ShaderStage stage, string code)
+        public IShader CompileShader(ShaderStage stage, ShaderBindings bindings, string code)
+        {
+            return new Shader(stage, code);
+        }
+
+        public IShader CompileShader(ShaderStage stage, ShaderBindings bindings, byte[] code)
         {
             return new Shader(stage, code);
         }
@@ -91,6 +98,11 @@ namespace Ryujinx.Graphics.OpenGL
             Buffer.Delete(buffer);
         }
 
+        public HardwareInfo GetHardwareInfo()
+        {
+            return new HardwareInfo(GpuVendor, GpuRenderer);
+        }
+
         public ReadOnlySpan<byte> GetBufferData(BufferHandle buffer, int offset, int size)
         {
             return Buffer.GetData(this, buffer, offset, size);
@@ -99,6 +111,7 @@ namespace Ryujinx.Graphics.OpenGL
         public Capabilities GetCapabilities()
         {
             return new Capabilities(
+                TargetApi.OpenGL,
                 HwCapabilities.SupportsAstcCompression,
                 HwCapabilities.SupportsImageLoadFormatted,
                 HwCapabilities.SupportsMismatchingViewFormat,
@@ -159,8 +172,10 @@ namespace Ryujinx.Graphics.OpenGL
             _counters.QueueReset(type);
         }
 
-        public void BackgroundContextAction(Action action)
+        public void BackgroundContextAction(Action action, bool alwaysBackground = false)
         {
+            // alwaysBackground is ignored, since we cannot switch from the current context.
+
             if (IOpenGLContext.HasContext())
             {
                 action(); // We have a context already - use that (assuming it is the main one).

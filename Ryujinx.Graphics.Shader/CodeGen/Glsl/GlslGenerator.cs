@@ -74,7 +74,7 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
                             continue;
                         }
 
-                        if ((context.Config.Options.Flags & TranslationFlags.Feedback) != 0)
+                        if (context.Config.Options.Flags.HasFlag(TranslationFlags.Feedback))
                         {
                             context.AppendLine($"{DefaultNames.OAttributePrefix}{attr}_x = 0.0;");
                             context.AppendLine($"{DefaultNames.OAttributePrefix}{attr}_y = 0.0;");
@@ -162,7 +162,7 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
                 else if (node is AstAssignment assignment)
                 {
                     VariableType srcType = OperandManager.GetNodeDestType(context, assignment.Source);
-                    VariableType dstType = OperandManager.GetNodeDestType(context, assignment.Destination);
+                    VariableType dstType = OperandManager.GetNodeDestType(context, assignment.Destination, isAsgDest: true);
 
                     string dest;
 

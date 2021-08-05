@@ -302,6 +302,11 @@ namespace Ryujinx.Configuration
         public class GraphicsSection
         {
             /// <summary>
+            /// Whether or not backend threading is enabled. The "Auto" setting will determine whether threading should be enabled at runtime.
+            /// </summary>
+            public ReactiveObject<BackendThreading> BackendThreading { get; private set; }
+
+            /// <summary>
             /// Max Anisotropy. Values range from 0 - 16. Set to -1 to let the game decide.
             /// </summary>
             public ReactiveObject<float> MaxAnisotropy { get; private set; }
@@ -336,8 +341,15 @@ namespace Ryujinx.Configuration
             /// </summary>
             public ReactiveObject<bool> EnableShaderCache { get; private set; }
 
+            /// <summary>
+            /// Graphics backend
+            /// </summary>
+            public ReactiveObject<GraphicsBackend> GraphicsBackend { get; private set; }
+
             public GraphicsSection()
             {
+                BackendThreading        = new ReactiveObject<BackendThreading>();
+                BackendThreading.Event  += static (sender, e) => LogValueChange(sender, e, nameof(BackendThreading));
                 ResScale                = new ReactiveObject<int>();
                 ResScale.Event          += static (sender, e) => LogValueChange(sender, e, nameof(ResScale));
                 ResScaleCustom          = new ReactiveObject<float>();
@@ -351,6 +363,8 @@ namespace Ryujinx.Configuration
                 EnableVsync.Event       += static (sender, e) => LogValueChange(sender, e, nameof(EnableVsync));
                 EnableShaderCache       = new ReactiveObject<bool>();
                 EnableShaderCache.Event += static (sender, e) => LogValueChange(sender, e, nameof(EnableShaderCache));
+                GraphicsBackend         = new ReactiveObject<GraphicsBackend>();
+                GraphicsBackend.Event   += static (sender, e) => LogValueChange(sender, e, nameof(GraphicsBackend));
             }
         }
 
@@ -423,6 +437,7 @@ namespace Ryujinx.Configuration
             {
                 Version                   = ConfigurationFileFormat.CurrentVersion,
                 EnableFileLog             = Logger.EnableFileLog,
+                BackendThreading          = Graphics.BackendThreading,
                 ResScale                  = Graphics.ResScale,
                 ResScaleCustom            = Graphics.ResScaleCustom,
                 MaxAnisotropy             = Graphics.MaxAnisotropy,
@@ -483,6 +498,7 @@ namespace Ryujinx.Configuration
                 KeyboardConfig            = new List<object>(),
                 ControllerConfig          = new List<object>(),
                 InputConfig               = Hid.InputConfig,
+                GraphicsBackend           = Graphics.GraphicsBackend,
             };
 
             return configurationFile;
@@ -491,10 +507,12 @@ namespace Ryujinx.Configuration
         public void LoadDefault()
         {
             Logger.EnableFileLog.Value             = true;
+            Graphics.BackendThreading.Value        = BackendThreading.Auto;
             Graphics.ResScale.Value                = 1;
             Graphics.ResScaleCustom.Value          = 1.0f;
             Graphics.MaxAnisotropy.Value           = -1.0f;
             Graphics.AspectRatio.Value             = AspectRatio.Fixed16x9;
+            Graphics.GraphicsBackend.Value         = GraphicsBackend.OpenGl;
             Graphics.ShadersDumpPath.Value         = "";
             Logger.EnableDebug.Value               = false;
             Logger.EnableStub.Value                = true;
@@ -873,6 +891,7 @@ namespace Ryujinx.Configuration
                 };
 
                 configurationFileUpdated = true;
+                configurationFileFormat.BackendThreading = BackendThreading.Auto;
             }
 
             if (configurationFileFormat.Version < 30)
@@ -893,14 +912,17 @@ namespace Ryujinx.Configuration
                 }
 
                 configurationFileUpdated = true;
+                configurationFileFormat.BackendThreading = BackendThreading.Auto;
             }
 
             Logger.EnableFileLog.Value             = configurationFileFormat.EnableFileLog;
+            Graphics.BackendThreading.Value        = configurationFileFormat.BackendThreading;
             Graphics.ResScale.Value                = configurationFileFormat.ResScale;
             Graphics.ResScaleCustom.Value          = configurationFileFormat.ResScaleCustom;
             Graphics.MaxAnisotropy.Value           = configurationFileFormat.MaxAnisotropy;
             Graphics.AspectRatio.Value             = configurationFileFormat.AspectRatio;
             Graphics.ShadersDumpPath.Value         = configurationFileFormat.GraphicsShadersDumpPath;
+            Graphics.GraphicsBackend.Value         = configurationFileFormat.GraphicsBackend;
             Logger.EnableDebug.Value               = configurationFileFormat.LoggingEnableDebug;
             Logger.EnableStub.Value                = configurationFileFormat.LoggingEnableStub;
             Logger.EnableInfo.Value                = configurationFileFormat.LoggingEnableInfo;

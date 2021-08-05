@@ -11,7 +11,7 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
 {
     class OperandManager
     {
-        private static string[] _stagePrefixes = new string[] { "cp", "vp", "tcp", "tep", "gp", "fp" };
+        private static readonly string[] StagePrefixes = new string[] { "cp", "vp", "tcp", "tep", "gp", "fp" };
 
         private struct BuiltInAttribute
         {
@@ -26,8 +26,7 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
             }
         }
 
-        private static Dictionary<int, BuiltInAttribute> _builtInAttributes =
-                   new Dictionary<int, BuiltInAttribute>()
+        private static Dictionary<int, BuiltInAttribute> BuiltInAttributes = new Dictionary<int, BuiltInAttribute>()
         {
             { AttributeConsts.Layer,               new BuiltInAttribute("gl_Layer",           VariableType.S32)  },
             { AttributeConsts.PointSize,           new BuiltInAttribute("gl_PointSize",       VariableType.F32)  },
@@ -68,14 +67,14 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
             { AttributeConsts.LtMask,              new BuiltInAttribute("unpackUint2x32(gl_SubGroupLtMaskARB).x", VariableType.U32)  },
 
             // Support uniforms.
-            { AttributeConsts.FragmentOutputIsBgraBase + 0,  new BuiltInAttribute($"{DefaultNames.IsBgraName}[0]",  VariableType.Bool) },
-            { AttributeConsts.FragmentOutputIsBgraBase + 4,  new BuiltInAttribute($"{DefaultNames.IsBgraName}[1]",  VariableType.Bool) },
-            { AttributeConsts.FragmentOutputIsBgraBase + 8,  new BuiltInAttribute($"{DefaultNames.IsBgraName}[2]",  VariableType.Bool) },
-            { AttributeConsts.FragmentOutputIsBgraBase + 12, new BuiltInAttribute($"{DefaultNames.IsBgraName}[3]",  VariableType.Bool) },
-            { AttributeConsts.FragmentOutputIsBgraBase + 16, new BuiltInAttribute($"{DefaultNames.IsBgraName}[4]",  VariableType.Bool) },
-            { AttributeConsts.FragmentOutputIsBgraBase + 20, new BuiltInAttribute($"{DefaultNames.IsBgraName}[5]",  VariableType.Bool) },
-            { AttributeConsts.FragmentOutputIsBgraBase + 24, new BuiltInAttribute($"{DefaultNames.IsBgraName}[6]",  VariableType.Bool) },
-            { AttributeConsts.FragmentOutputIsBgraBase + 28, new BuiltInAttribute($"{DefaultNames.IsBgraName}[7]",  VariableType.Bool) }
+            { AttributeConsts.FragmentOutputIsBgraBase + 0,  new BuiltInAttribute($"{DefaultNames.SupportBlockIsBgraName}[0]",  VariableType.Bool) },
+            { AttributeConsts.FragmentOutputIsBgraBase + 4,  new BuiltInAttribute($"{DefaultNames.SupportBlockIsBgraName}[1]",  VariableType.Bool) },
+            { AttributeConsts.FragmentOutputIsBgraBase + 8,  new BuiltInAttribute($"{DefaultNames.SupportBlockIsBgraName}[2]",  VariableType.Bool) },
+            { AttributeConsts.FragmentOutputIsBgraBase + 12, new BuiltInAttribute($"{DefaultNames.SupportBlockIsBgraName}[3]",  VariableType.Bool) },
+            { AttributeConsts.FragmentOutputIsBgraBase + 16, new BuiltInAttribute($"{DefaultNames.SupportBlockIsBgraName}[4]",  VariableType.Bool) },
+            { AttributeConsts.FragmentOutputIsBgraBase + 20, new BuiltInAttribute($"{DefaultNames.SupportBlockIsBgraName}[5]",  VariableType.Bool) },
+            { AttributeConsts.FragmentOutputIsBgraBase + 24, new BuiltInAttribute($"{DefaultNames.SupportBlockIsBgraName}[6]",  VariableType.Bool) },
+            { AttributeConsts.FragmentOutputIsBgraBase + 28, new BuiltInAttribute($"{DefaultNames.SupportBlockIsBgraName}[7]",  VariableType.Bool) }
         };
 
         private Dictionary<AstOperand, string> _locals;
@@ -156,7 +155,7 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
                     ? DefaultNames.OAttributePrefix
                     : DefaultNames.IAttributePrefix;
 
-                if ((config.Options.Flags & TranslationFlags.Feedback) != 0)
+                if (config.Options.Flags.HasFlag(TranslationFlags.Feedback))
                 {
                     string name = $"{prefix}{(value >> 4)}_{swzMask}";
 
@@ -187,15 +186,15 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
 
                     return $"{DefaultNames.OAttributePrefix}{(value >> 4)}.{swzMask}";
                 }
-                else if (_builtInAttributes.TryGetValue(value & ~3, out BuiltInAttribute builtInAttr))
+                else if (BuiltInAttributes.TryGetValue(value & ~3, out BuiltInAttribute builtInAttr))
                 {
                     // TODO: There must be a better way to handle this...
                     if (config.Stage == ShaderStage.Fragment)
                     {
                         switch (value & ~3)
                         {
-                            case AttributeConsts.PositionX: return "(gl_FragCoord.x / fp_renderScale[0])";
-                            case AttributeConsts.PositionY: return "(gl_FragCoord.y / fp_renderScale[0])";
+                            case AttributeConsts.PositionX: return $"(gl_FragCoord.x / {DefaultNames.SupportBlockRenderScaleName}[0])";
+                            case AttributeConsts.PositionY: return $"(gl_FragCoord.y / {DefaultNames.SupportBlockRenderScaleName}[0])";
                             case AttributeConsts.PositionZ: return "gl_FragCoord.z";
                             case AttributeConsts.PositionW: return "gl_FragCoord.w";
                         }
@@ -278,12 +277,12 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
         {
             int index = (int)stage;
 
-            if ((uint)index >= _stagePrefixes.Length)
+            if ((uint)index >= StagePrefixes.Length)
             {
                 return "invalid";
             }
 
-            return _stagePrefixes[index];
+            return StagePrefixes[index];
         }
 
         private static char GetSwizzleMask(int value)
@@ -296,7 +295,7 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
             return $"{DefaultNames.ArgumentNamePrefix}{argIndex}";
         }
 
-        public static VariableType GetNodeDestType(CodeGenContext context, IAstNode node)
+        public static VariableType GetNodeDestType(CodeGenContext context, IAstNode node, bool isAsgDest = false)
         {
             if (node is AstOperation operation)
             {
@@ -305,7 +304,7 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
                 // to return the type based on the attribute that is being read.
                 if (operation.Inst == Instruction.LoadAttribute)
                 {
-                    return GetOperandVarType((AstOperand)operation.GetSource(0));
+                    return GetOperandVarType(context, (AstOperand)operation.GetSource(0));
                 }
                 else if (operation.Inst == Instruction.Call)
                 {
@@ -333,7 +332,7 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
                     return context.CurrentFunction.GetArgumentType(argIndex);
                 }
 
-                return GetOperandVarType(operand);
+                return GetOperandVarType(context, operand, isAsgDest);
             }
             else
             {
@@ -341,13 +340,28 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
             }
         }
 
-        private static VariableType GetOperandVarType(AstOperand operand)
+        private static VariableType GetOperandVarType(CodeGenContext context, AstOperand operand, bool isAsgDest = false)
         {
             if (operand.Type == OperandType.Attribute)
             {
-                if (_builtInAttributes.TryGetValue(operand.Value & ~3, out BuiltInAttribute builtInAttr))
+                if (BuiltInAttributes.TryGetValue(operand.Value & ~3, out BuiltInAttribute builtInAttr))
                 {
                     return builtInAttr.Type;
+                }
+                else if (context.Config.Stage == ShaderStage.Vertex && !isAsgDest &&
+                    operand.Value >= AttributeConsts.UserAttributeBase &&
+                    operand.Value < AttributeConsts.UserAttributeEnd)
+                {
+                    int location = (operand.Value - AttributeConsts.UserAttributeBase) / 16;
+
+                    AttributeType type = context.Config.GpuAccessor.QueryAttributeType(location);
+
+                    return type switch
+                    {
+                        AttributeType.Sint => VariableType.S32,
+                        AttributeType.Uint => VariableType.U32,
+                        _ => VariableType.F32
+                    };
                 }
             }
 

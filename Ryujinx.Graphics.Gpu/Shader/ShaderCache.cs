@@ -13,6 +13,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace Ryujinx.Graphics.Gpu.Shader
 {
@@ -35,10 +36,12 @@ namespace Ryujinx.Graphics.Gpu.Shader
         private Dictionary<Hash128, ShaderBundle> _gpProgramsDiskCache;
         private Dictionary<Hash128, ShaderBundle> _cpProgramsDiskCache;
 
+        private Queue<(IProgram, Action<byte[]>)> _programsToSaveQueue;
+
         /// <summary>
         /// Version of the codegen (to be changed when codegen or guest format change).
         /// </summary>
-        private const ulong ShaderCodeGenVersion = 2469;
+        private const ulong ShaderCodeGenVersion = 2505;
 
         // Progress reporting helpers
         private volatile int _shaderCount;
@@ -59,6 +62,31 @@ namespace Ryujinx.Graphics.Gpu.Shader
             _gpPrograms = new Dictionary<ShaderAddresses, List<ShaderBundle>>();
             _gpProgramsDiskCache = new Dictionary<Hash128, ShaderBundle>();
             _cpProgramsDiskCache = new Dictionary<Hash128, ShaderBundle>();
+
+            _programsToSaveQueue = new Queue<(IProgram, Action<byte[]>)>();
+        }
+
+        /// <summary>
+        /// Processes the queue of shaders that must save their binaries to the disk cache.
+        /// </summary>
+        public void ProcessShaderCacheQueue()
+        {
+            // Check to see if the binaries for previously compiled shaders are ready, and save them out.
+
+            while (_programsToSaveQueue.Count > 0)
+            {
+                (IProgram program, Action<byte[]> dataAction) = _programsToSaveQueue.Peek();
+
+                if (program.CheckProgramLink(false) != ProgramLinkStatus.Incomplete)
+                {
+                    dataAction(program.GetBinary());
+                    _programsToSaveQueue.Dequeue();
+                }
+                else
+                {
+                    break;
+                }
+            }
         }
 
         /// <summary>
@@ -193,7 +221,7 @@ namespace Ryujinx.Graphics.Gpu.Shader
                                     {
                                         IGpuAccessor gpuAccessor = new CachedGpuAccessor(_context, entry.Code, entry.Header.GpuAccessorHeader, entry.TextureDescriptors);
 
-                                        var options = new TranslationOptions(TargetLanguage.Glsl, TargetApi.OpenGL, DefaultFlags | TranslationFlags.Compute);
+                                        var options = CreateTranslationOptions(DefaultFlags | TranslationFlags.Compute);
                                         program = Translator.CreateContext(0, gpuAccessor, options).Translate(out shaderProgramInfo);
                                     });
 
@@ -204,7 +232,7 @@ namespace Ryujinx.Graphics.Gpu.Shader
                                         Logger.Info?.Print(LogClass.Gpu, $"Host shader {key} got invalidated, rebuilding from guest...");
 
                                         // Compile shader and create program as the shader program binary got invalidated.
-                                        shader.HostShader = _context.Renderer.CompileShader(ShaderStage.Compute, shader.Program.Code);
+                                        shader.HostShader = CompileShader(shader.Program, shader.Info);
                                         hostProgram = _context.Renderer.CreateProgram(new IShader[] { shader.HostShader }, null);
 
                                         task.OnCompiled(hostProgram, (bool isNewProgramValid, ShaderCompileTask task) =>
@@ -254,8 +282,6 @@ namespace Ryujinx.Graphics.Gpu.Shader
                                 flags |= TranslationFlags.Feedback;
                             }
 
-                            TranslationCounts counts = new TranslationCounts();
-
                             HostShaderCacheEntry[] hostShaderEntries = null;
 
                             // Try loading host shader binary.
@@ -300,11 +326,11 @@ namespace Ryujinx.Graphics.Gpu.Shader
                                             {
                                                 IGpuAccessor gpuAccessor = new CachedGpuAccessor(_context, entry.Code, entry.Header.GpuAccessorHeader, entry.TextureDescriptors);
 
-                                                var options = new TranslationOptions(TargetLanguage.Glsl, TargetApi.OpenGL, flags);
-                                                var options2 = new TranslationOptions(TargetLanguage.Glsl, TargetApi.OpenGL, flags | TranslationFlags.VertexA);
+                                                var options = CreateTranslationOptions(flags);
+                                                var options2 = CreateTranslationOptions(flags | TranslationFlags.VertexA);
 
-                                                TranslatorContext translatorContext = Translator.CreateContext(0, gpuAccessor, options, counts);
-                                                TranslatorContext translatorContext2 = Translator.CreateContext((ulong)entry.Header.Size, gpuAccessor, options2, counts);
+                                                TranslatorContext translatorContext = Translator.CreateContext(0, gpuAccessor, options);
+                                                TranslatorContext translatorContext2 = Translator.CreateContext((ulong)entry.Header.Size, gpuAccessor, options2);
 
                                                 program = translatorContext.Translate(out shaderProgramInfo, translatorContext2);
                                             }
@@ -328,8 +354,8 @@ namespace Ryujinx.Graphics.Gpu.Shader
                                             {
                                                 IGpuAccessor gpuAccessor = new CachedGpuAccessor(_context, entry.Code, entry.Header.GpuAccessorHeader, entry.TextureDescriptors);
 
-                                                var options = new TranslationOptions(TargetLanguage.Glsl, TargetApi.OpenGL, flags);
-                                                program = Translator.CreateContext(0, gpuAccessor, options, counts).Translate(out shaderProgramInfo);
+                                                var options = CreateTranslationOptions(flags);
+                                                program = Translator.CreateContext(0, gpuAccessor, options).Translate(out shaderProgramInfo);
                                             }
 
                                             shaders[i] = new ShaderCodeHolder(program, shaderProgramInfo, entry.Code);
@@ -358,7 +384,7 @@ namespace Ryujinx.Graphics.Gpu.Shader
                                                 continue;
                                             }
 
-                                            IShader hostShader = _context.Renderer.CompileShader(program.Stage, program.Code);
+                                            IShader hostShader = CompileShader(program, shaders[stage].Info);;
 
                                             shaders[stage].HostShader = hostShader;
 
@@ -554,13 +580,9 @@ namespace Ryujinx.Graphics.Gpu.Shader
                 // The shader isn't currently cached, translate it and compile it.
                 ShaderCodeHolder shader = TranslateShader(channel.MemoryManager, shaderContexts[0]);
 
-                shader.HostShader = _context.Renderer.CompileShader(ShaderStage.Compute, shader.Program.Code);
+                shader.HostShader = CompileShader(shader.Program, shader.Info);;
 
                 IProgram hostProgram = _context.Renderer.CreateProgram(new IShader[] { shader.HostShader }, null);
-
-                hostProgram.CheckProgramLink(true);
-
-                byte[] hostProgramBinary = HostShaderCacheEntry.Create(hostProgram.GetBinary(), new ShaderCodeHolder[] { shader });
 
                 cpShader = new ShaderBundle(hostProgram, shader);
 
@@ -570,7 +592,11 @@ namespace Ryujinx.Graphics.Gpu.Shader
 
                     if (!isShaderCacheReadOnly)
                     {
-                        _cacheManager.SaveProgram(ref programCodeHash, CacheHelper.CreateGuestProgramDump(shaderCacheEntries), hostProgramBinary);
+                        byte[] guestProgramDump = CacheHelper.CreateGuestProgramDump(shaderCacheEntries);
+                        _programsToSaveQueue.Enqueue((hostProgram, (byte[] hostProgramBinary) =>
+                        {
+                            _cacheManager.SaveProgram(ref programCodeHash, guestProgramDump, HostShaderCacheEntry.Create(hostProgramBinary, new ShaderCodeHolder[] { shader }));
+                        }));
                     }
                 }
             }
@@ -616,6 +642,18 @@ namespace Ryujinx.Graphics.Gpu.Shader
 
             TranslatorContext[] shaderContexts = new TranslatorContext[Constants.ShaderStages + 1];
 
+            AttributeType[] attributeTypes = new AttributeType[Constants.TotalVertexAttribs];
+
+            for (int location = 0; location < attributeTypes.Length; location++)
+            {
+                attributeTypes[location] = state.VertexAttribState[location].UnpackType() switch
+                {
+                    3 => AttributeType.Sint,
+                    4 => AttributeType.Uint,
+                    _ => AttributeType.Float
+                };
+            }
+
             TransformFeedbackDescriptor[] tfd = GetTransformFeedbackDescriptors(ref state);
 
             TranslationFlags flags = DefaultFlags;
@@ -625,18 +663,16 @@ namespace Ryujinx.Graphics.Gpu.Shader
                 flags |= TranslationFlags.Feedback;
             }
 
-            TranslationCounts counts = new TranslationCounts();
-
             if (addresses.VertexA != 0)
             {
-                shaderContexts[0] = DecodeGraphicsShader(channel, gas, counts, flags | TranslationFlags.VertexA, ShaderStage.Vertex, addresses.VertexA);
+                shaderContexts[0] = DecodeGraphicsShader(channel, gas, attributeTypes, tfd, flags | TranslationFlags.VertexA, ShaderStage.Vertex, addresses.VertexA);
             }
 
-            shaderContexts[1] = DecodeGraphicsShader(channel, gas, counts, flags, ShaderStage.Vertex, addresses.Vertex);
-            shaderContexts[2] = DecodeGraphicsShader(channel, gas, counts, flags, ShaderStage.TessellationControl, addresses.TessControl);
-            shaderContexts[3] = DecodeGraphicsShader(channel, gas, counts, flags, ShaderStage.TessellationEvaluation, addresses.TessEvaluation);
-            shaderContexts[4] = DecodeGraphicsShader(channel, gas, counts, flags, ShaderStage.Geometry, addresses.Geometry);
-            shaderContexts[5] = DecodeGraphicsShader(channel, gas, counts, flags, ShaderStage.Fragment, addresses.Fragment);
+            shaderContexts[1] = DecodeGraphicsShader(channel, gas, attributeTypes, tfd, flags, ShaderStage.Vertex, addresses.Vertex);
+            shaderContexts[2] = DecodeGraphicsShader(channel, gas, null, tfd, flags, ShaderStage.TessellationControl, addresses.TessControl);
+            shaderContexts[3] = DecodeGraphicsShader(channel, gas, null, tfd, flags, ShaderStage.TessellationEvaluation, addresses.TessEvaluation);
+            shaderContexts[4] = DecodeGraphicsShader(channel, gas, null, tfd, flags, ShaderStage.Geometry, addresses.Geometry);
+            shaderContexts[5] = DecodeGraphicsShader(channel, gas, null, tfd, flags, ShaderStage.Fragment, addresses.Fragment);
 
             bool isShaderCacheEnabled = _cacheManager != null;
             bool isShaderCacheReadOnly = false;
@@ -693,7 +729,7 @@ namespace Ryujinx.Graphics.Gpu.Shader
                         continue;
                     }
 
-                    IShader hostShader = _context.Renderer.CompileShader(program.Stage, program.Code);
+                    IShader hostShader = CompileShader(program, shaders[stage].Info);;
 
                     shaders[stage].HostShader = hostShader;
 
@@ -701,10 +737,6 @@ namespace Ryujinx.Graphics.Gpu.Shader
                 }
 
                 IProgram hostProgram = _context.Renderer.CreateProgram(hostShaders.ToArray(), tfd);
-
-                hostProgram.CheckProgramLink(true);
-
-                byte[] hostProgramBinary = HostShaderCacheEntry.Create(hostProgram.GetBinary(), shaders);
 
                 gpShaders = new ShaderBundle(hostProgram, shaders);
 
@@ -714,7 +746,11 @@ namespace Ryujinx.Graphics.Gpu.Shader
 
                     if (!isShaderCacheReadOnly)
                     {
-                        _cacheManager.SaveProgram(ref programCodeHash, CacheHelper.CreateGuestProgramDump(shaderCacheEntries, tfd), hostProgramBinary);
+                        byte[] guestProgramDump = CacheHelper.CreateGuestProgramDump(shaderCacheEntries, tfd);
+                        _programsToSaveQueue.Enqueue((hostProgram, (byte[] hostProgramBinary) =>
+                        {
+                            _cacheManager.SaveProgram(ref programCodeHash, guestProgramDump, HostShaderCacheEntry.Create(hostProgramBinary, shaders));
+                        }));
                     }
                 }
             }
@@ -864,7 +900,7 @@ namespace Ryujinx.Graphics.Gpu.Shader
 
             GpuAccessor gpuAccessor = new GpuAccessor(_context, channel, gas, localSizeX, localSizeY, localSizeZ, localMemorySize, sharedMemorySize);
 
-            var options = new TranslationOptions(TargetLanguage.Glsl, TargetApi.OpenGL, DefaultFlags | TranslationFlags.Compute);
+            var options = CreateTranslationOptions(DefaultFlags | TranslationFlags.Compute);
             return Translator.CreateContext(gpuVa, gpuAccessor, options);
         }
 
@@ -876,7 +912,8 @@ namespace Ryujinx.Graphics.Gpu.Shader
         /// </remarks>
         /// <param name="channel">GPU channel</param>
         /// <param name="gas">GPU accessor state</param>
-        /// <param name="counts">Cumulative shader resource counts</param>
+        /// <param name="attributeTypes">Type of the vertex attributes consumed by the shader</param>
+        /// <param name="tfd">Transform feedback descriptors</param>
         /// <param name="flags">Flags that controls shader translation</param>
         /// <param name="stage">Shader stage</param>
         /// <param name="gpuVa">GPU virtual address of the shader code</param>
@@ -884,7 +921,8 @@ namespace Ryujinx.Graphics.Gpu.Shader
         private TranslatorContext DecodeGraphicsShader(
             GpuChannel channel,
             GpuAccessorState gas,
-            TranslationCounts counts,
+            AttributeType[] attributeTypes,
+            TransformFeedbackDescriptor[] tfd,
             TranslationFlags flags,
             ShaderStage stage,
             ulong gpuVa)
@@ -894,10 +932,10 @@ namespace Ryujinx.Graphics.Gpu.Shader
                 return null;
             }
 
-            GpuAccessor gpuAccessor = new GpuAccessor(_context, channel, gas, (int)stage - 1);
+            GpuAccessor gpuAccessor = new GpuAccessor(_context, channel, gas, attributeTypes, tfd, (int)stage - 1);
 
-            var options = new TranslationOptions(TargetLanguage.Glsl, TargetApi.OpenGL, flags);
-            return Translator.CreateContext(gpuVa, gpuAccessor, options, counts);
+            var options = CreateTranslationOptions(flags);
+            return Translator.CreateContext(gpuVa, gpuAccessor, options);
         }
 
         /// <summary>
@@ -952,6 +990,54 @@ namespace Ryujinx.Graphics.Gpu.Shader
                 }
 
                 return new ShaderCodeHolder(program, shaderProgramInfo, code);
+            }
+        }
+
+        private static ShaderBindings GetBindings(ShaderProgramInfo info)
+        {
+            static bool IsBuffer(TextureDescriptor descriptor)
+            {
+                return (descriptor.Type & SamplerType.Mask) == SamplerType.TextureBuffer;
+            }
+
+            static bool IsNotBuffer(TextureDescriptor descriptor)
+            {
+                return !IsBuffer(descriptor);
+            }
+
+            var uniformBufferBindings = info.CBuffers.Select(x => x.Binding).ToArray();
+            var storageBufferBindings = info.SBuffers.Select(x => x.Binding).ToArray();
+            var textureBindings = info.Textures.Where(IsNotBuffer).Select(x => x.Binding).ToArray();
+            var imageBindings = info.Images.Where(IsNotBuffer).Select(x => x.Binding).ToArray();
+            var bufferTextureBindings = info.Textures.Where(IsBuffer).Select(x => x.Binding).ToArray();
+            var bufferImageBindings = info.Images.Where(IsBuffer).Select(x => x.Binding).ToArray();
+
+            return new ShaderBindings(
+                uniformBufferBindings,
+                storageBufferBindings,
+                textureBindings,
+                imageBindings,
+                bufferTextureBindings,
+                bufferImageBindings);
+        }
+
+        private TranslationOptions CreateTranslationOptions(TranslationFlags flags)
+        {
+            TargetApi api = _context.Capabilities.Api;
+            TargetLanguage lang = GraphicsConfig.EnableSpirvCompilation ? TargetLanguage.Spirv : TargetLanguage.Glsl;
+
+            return new TranslationOptions(lang, api, flags);
+        }
+
+        private IShader CompileShader(ShaderProgram program, ShaderProgramInfo info)
+        {
+            if (program.BinaryCode != null)
+            {
+                return _context.Renderer.CompileShader(program.Stage, GetBindings(info), program.BinaryCode);
+            }
+            else
+            {
+                return _context.Renderer.CompileShader(program.Stage, GetBindings(info), program.Code);
             }
         }
 

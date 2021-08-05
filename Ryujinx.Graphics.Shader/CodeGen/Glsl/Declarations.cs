@@ -1,9 +1,7 @@
 using Ryujinx.Common;
-using Ryujinx.Graphics.Shader.IntermediateRepresentation;
 using Ryujinx.Graphics.Shader.StructuredIr;
 using Ryujinx.Graphics.Shader.Translation;
 using System;
-using System.Collections.Generic;
 using System.Linq;
 
 namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
@@ -144,6 +142,20 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
 
                     context.AppendLine();
                 }
+
+                if (context.Config.Stage != ShaderStage.Compute &&
+                    context.Config.Stage != ShaderStage.Fragment &&
+                    (context.Config.Options.Flags & TranslationFlags.Feedback) != 0)
+                {
+                    var tfOutput = context.GetTransformFeedbackOutput(AttributeConsts.PositionX);
+                    if (tfOutput.Valid)
+                    {
+                        context.AppendLine($"layout (xfb_buffer = {tfOutput.Buffer}, xfb_offset = {tfOutput.Offset}, xfb_stride = {tfOutput.Stride}) out gl_PerVertex");
+                        context.EnterScope();
+                        context.AppendLine("vec4 gl_Position;");
+                        context.LeaveScope(";");
+                    }
+                }
             }
             else
             {
@@ -159,23 +171,38 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
                 context.AppendLine();
             }
 
-            if (context.Config.Stage == ShaderStage.Fragment || context.Config.Stage == ShaderStage.Compute)
-            {
-                if (context.Config.Stage == ShaderStage.Fragment)
-                {
-                    if (context.Config.GpuAccessor.QueryEarlyZForce())
-                    {
-                        context.AppendLine("layout(early_fragment_tests) in;");
-                        context.AppendLine();
-                    }
+            bool isFragment = context.Config.Stage == ShaderStage.Fragment;
 
-                    context.AppendLine($"uniform bool {DefaultNames.IsBgraName}[8];");
+            if (isFragment || context.Config.Stage == ShaderStage.Compute)
+            {
+                if (isFragment && context.Config.GpuAccessor.QueryEarlyZForce())
+                {
+                    context.AppendLine("layout(early_fragment_tests) in;");
                     context.AppendLine();
                 }
 
-                if (DeclareRenderScale(context))
+                if ((context.Config.UsedFeatures & (FeatureFlags.FragCoordXY | FeatureFlags.IntegerSampling)) != 0)
                 {
-                    context.AppendLine();
+                    string stage = OperandManager.GetShaderStagePrefix(context.Config.Stage);
+
+                    int scaleElements = context.Config.GetTextureDescriptors().Length + context.Config.GetImageDescriptors().Length;
+
+                    if (isFragment)
+                    {
+                        scaleElements++; // Also includes render target scale, for gl_FragCoord.
+                    }
+
+                    DeclareSupportUniformBlock(context, isFragment, scaleElements);
+
+                    if (context.Config.UsedFeatures.HasFlag(FeatureFlags.IntegerSampling))
+                    {
+                        AppendHelperFunction(context, $"Ryujinx.Graphics.Shader/CodeGen/Glsl/HelperFunctions/TexelFetchScale_{stage}.glsl");
+                        context.AppendLine();
+                    }
+                }
+                else if (isFragment)
+                {
+                    DeclareSupportUniformBlock(context, true, 0);
                 }
             }
 
@@ -240,11 +267,11 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
             switch (type)
             {
                 case VariableType.Bool: return "bool";
-                case VariableType.F32:  return "precise float";
-                case VariableType.F64:  return "double";
+                case VariableType.F32: return "precise float";
+                case VariableType.F64: return "double";
                 case VariableType.None: return "void";
-                case VariableType.S32:  return "int";
-                case VariableType.U32:  return "uint";
+                case VariableType.S32: return "int";
+                case VariableType.U32: return "uint";
             }
 
             throw new ArgumentException($"Invalid variable type \"{type}\".");
@@ -431,18 +458,40 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
 
             string name = $"{DefaultNames.IAttributePrefix}{attr}";
 
-            if ((context.Config.Options.Flags & TranslationFlags.Feedback) != 0)
+            if (context.Config.Options.Flags.HasFlag(TranslationFlags.Feedback))
             {
+                string type;
+
+                if (context.Config.Stage == ShaderStage.Vertex)
+                {
+                    type = context.Config.GpuAccessor.QueryAttributeType(attr).GetScalarType();
+                }
+                else
+                {
+                    type = AttributeType.Float.GetScalarType();
+                }
+
                 for (int c = 0; c < 4; c++)
                 {
                     char swzMask = "xyzw"[c];
 
-                    context.AppendLine($"layout ({pass}location = {attr}, component = {c}) {iq}in float {name}_{swzMask}{suffix};");
+                    context.AppendLine($"layout ({pass}location = {attr}, component = {c}) {iq}in {type} {name}_{swzMask}{suffix};");
                 }
             }
             else
             {
-                context.AppendLine($"layout ({pass}location = {attr}) {iq}in vec4 {name}{suffix};");
+                string type;
+
+                if (context.Config.Stage == ShaderStage.Vertex)
+                {
+                    type = context.Config.GpuAccessor.QueryAttributeType(attr).GetVec4Type();
+                }
+                else
+                {
+                    type = AttributeType.Float.GetVec4Type();
+                }
+
+                context.AppendLine($"layout ({pass}location = {attr}) {iq}in {type} {name}{suffix};");
             }
         }
 
@@ -483,13 +532,21 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
         {
             string name = $"{DefaultNames.OAttributePrefix}{attr}";
 
-            if ((context.Config.Options.Flags & TranslationFlags.Feedback) != 0)
+            if (context.Config.Options.Flags.HasFlag(TranslationFlags.Feedback))
             {
                 for (int c = 0; c < 4; c++)
                 {
                     char swzMask = "xyzw"[c];
 
-                    context.AppendLine($"layout (location = {attr}, component = {c}) out float {name}_{swzMask};");
+                    string xfb = string.Empty;
+
+                    var tfOutput = context.GetTransformFeedbackOutput(attr, c);
+                    if (tfOutput.Valid)
+                    {
+                        xfb = $", xfb_buffer = {tfOutput.Buffer}, xfb_offset = {tfOutput.Offset}, xfb_stride = {tfOutput.Stride}";
+                    }
+
+                    context.AppendLine($"layout (location = {attr}, component = {c}{xfb}) out float {name}_{swzMask};");
                 }
             }
             else
@@ -498,31 +555,33 @@ namespace Ryujinx.Graphics.Shader.CodeGen.Glsl
             }
         }
 
-        private static bool DeclareRenderScale(CodeGenContext context)
+        private static void DeclareSupportUniformBlock(CodeGenContext context, bool isFragment, int scaleElements)
         {
-            if ((context.Config.UsedFeatures & (FeatureFlags.FragCoordXY | FeatureFlags.IntegerSampling)) != 0)
+            if (!isFragment && scaleElements == 0)
             {
-                string stage = OperandManager.GetShaderStagePrefix(context.Config.Stage);
-
-                int scaleElements = context.Config.GetTextureDescriptors().Length + context.Config.GetImageDescriptors().Length;
-
-                if (context.Config.Stage == ShaderStage.Fragment)
-                {
-                    scaleElements++; // Also includes render target scale, for gl_FragCoord.
-                }
-
-                context.AppendLine($"uniform float {stage}_renderScale[{scaleElements}];");
-
-                if (context.Config.UsedFeatures.HasFlag(FeatureFlags.IntegerSampling))
-                {
-                    context.AppendLine();
-                    AppendHelperFunction(context, $"Ryujinx.Graphics.Shader/CodeGen/Glsl/HelperFunctions/TexelFetchScale_{stage}.glsl");
-                }
-
-                return true;
+                return;
             }
 
-            return false;
+            context.AppendLine($"layout (binding = 0, std140) uniform {DefaultNames.SupportBlockName}");
+            context.EnterScope();
+
+            if (isFragment)
+            {
+                context.AppendLine($"uint {DefaultNames.SupportBlockAlphaTestName};");
+                context.AppendLine($"bool {DefaultNames.SupportBlockIsBgraName}[{SupportBuffer.FragmentIsBgraCount}];");
+            }
+            else
+            {
+                context.AppendLine($"uint s_reserved[{SupportBuffer.ComputeRenderScaleOffset / SupportBuffer.FieldSize}];");
+            }
+
+            if (scaleElements != 0)
+            {
+                context.AppendLine($"float {DefaultNames.SupportBlockRenderScaleName}[{scaleElements}];");
+            }
+
+            context.LeaveScope(";");
+            context.AppendLine();
         }
 
         private static void AppendHelperFunction(CodeGenContext context, string filename)

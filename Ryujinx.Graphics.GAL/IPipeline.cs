@@ -67,18 +67,16 @@ namespace Ryujinx.Graphics.GAL
         void SetRenderTargetColorMasks(ReadOnlySpan<uint> componentMask);
         void SetRenderTargets(ITexture[] colors, ITexture depthStencil);
 
-        void SetSampler(int binding, ISampler sampler);
-
-        void SetScissor(int index, bool enable, int x, int y, int width, int height);
+        void SetScissors(ReadOnlySpan<Rectangle<int>> regions);
 
         void SetStencilTest(StencilTestDescriptor stencilTest);
 
-        void SetStorageBuffers(ReadOnlySpan<BufferRange> buffers);
+        void SetStorageBuffers(int first, ReadOnlySpan<BufferRange> buffers);
 
-        void SetTexture(int binding, ITexture texture);
+        void SetTextureAndSampler(int binding, ITexture texture, ISampler sampler);
 
         void SetTransformFeedbackBuffers(ReadOnlySpan<BufferRange> buffers);
-        void SetUniformBuffers(ReadOnlySpan<BufferRange> buffers);
+        void SetUniformBuffers(int first, ReadOnlySpan<BufferRange> buffers);
 
         void SetUserClipDistance(int index, bool enableClip);
 
@@ -94,6 +92,6 @@ namespace Ryujinx.Graphics.GAL
         bool TryHostConditionalRendering(ICounterEvent value, ICounterEvent compare, bool isEqual);
         void EndHostConditionalRendering();
 
-        void UpdateRenderScale(ShaderStage stage, float[] scales, int textureCount, int imageCount);
+        void UpdateRenderScale(ShaderStage stage, ReadOnlySpan<float> scales, int textureCount, int imageCount);
     }
 }

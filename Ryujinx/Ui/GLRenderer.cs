@@ -6,6 +6,8 @@ using OpenTK.Graphics.OpenGL;
 using Ryujinx.Common;
 using Ryujinx.Common.Configuration;
 using Ryujinx.Configuration;
+using Ryujinx.Graphics.GAL;
+using Ryujinx.Graphics.GAL.Multithreading;
 using Ryujinx.Graphics.OpenGL;
 using Ryujinx.HLE.HOS.Services.Hid;
 using Ryujinx.Input;
@@ -121,9 +123,9 @@ namespace Ryujinx.Ui
             _nativeWindow.SwapBuffers();
         }
 
-        public override string GetGpuVendorName()
+        protected override string GetGpuBackendName()
         {
-            return ((Renderer)Renderer).GpuVendor;
+            return "OpenGL";
         }
 
         protected override void Dispose(bool disposing)
