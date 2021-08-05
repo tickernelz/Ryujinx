@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace ARMeilleure.IntermediateRepresentation
@@ -7,7 +8,7 @@ namespace ARMeilleure.IntermediateRepresentation
     /// Represents a efficient linked list that stores the pointer on the object directly and does not allocate.
     /// </summary>
     /// <typeparam name="T">Type of the list items</typeparam>
-    class IntrusiveList<T> where T : class, IIntrusiveListNode<T>
+    class IntrusiveList<T> where T : IIntrusiveListNode<T>
     {
         /// <summary>
         /// First item of the list, or null if empty.
@@ -29,17 +30,17 @@ namespace ARMeilleure.IntermediateRepresentation
         /// </summary>
         /// <param name="newNode">Item to be added</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void AddFirst(T newNode)
+        public T AddFirst(T newNode)
         {
-            if (First != null)
+            if (!EqualsNull(First))
             {
-                AddBefore(First, newNode);
+                return AddBefore(First, newNode);
             }
             else
             {
-                Debug.Assert(newNode.ListPrevious == null);
-                Debug.Assert(newNode.ListNext == null);
-                Debug.Assert(Last == null);
+                Debug.Assert(EqualsNull(newNode.ListPrevious));
+                Debug.Assert(EqualsNull(newNode.ListNext));
+                Debug.Assert(EqualsNull(Last));
 
                 First = newNode;
                 Last = newNode;
@@ -47,6 +48,8 @@ namespace ARMeilleure.IntermediateRepresentation
                 Debug.Assert(Count == 0);
 
                 Count = 1;
+
+                return newNode;
             }
         }
 
@@ -55,17 +58,17 @@ namespace ARMeilleure.IntermediateRepresentation
         /// </summary>
         /// <param name="newNode">Item to be added</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void AddLast(T newNode)
+        public T AddLast(T newNode)
         {
-            if (Last != null)
+            if (!EqualsNull(Last))
             {
-                AddAfter(Last, newNode);
+                return AddAfter(Last, newNode);
             }
             else
             {
-                Debug.Assert(newNode.ListPrevious == null);
-                Debug.Assert(newNode.ListNext == null);
-                Debug.Assert(First == null);
+                Debug.Assert(EqualsNull(newNode.ListPrevious));
+                Debug.Assert(EqualsNull(newNode.ListNext));
+                Debug.Assert(EqualsNull(First));
 
                 First = newNode;
                 Last = newNode;
@@ -73,6 +76,8 @@ namespace ARMeilleure.IntermediateRepresentation
                 Debug.Assert(Count == 0);
 
                 Count = 1;
+
+                return newNode;
             }
         }
 
@@ -85,20 +90,20 @@ namespace ARMeilleure.IntermediateRepresentation
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T AddBefore(T node, T newNode)
         {
-            Debug.Assert(newNode.ListPrevious == null);
-            Debug.Assert(newNode.ListNext == null);
+            Debug.Assert(EqualsNull(newNode.ListPrevious));
+            Debug.Assert(EqualsNull(newNode.ListNext));
 
             newNode.ListPrevious = node.ListPrevious;
             newNode.ListNext = node;
 
             node.ListPrevious = newNode;
 
-            if (newNode.ListPrevious != null)
+            if (!EqualsNull(newNode.ListPrevious))
             {
                 newNode.ListPrevious.ListNext = newNode;
             }
 
-            if (First == node)
+            if (Equals(First, node))
             {
                 First = newNode;
             }
@@ -117,20 +122,20 @@ namespace ARMeilleure.IntermediateRepresentation
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T AddAfter(T node, T newNode)
         {
-            Debug.Assert(newNode.ListPrevious == null);
-            Debug.Assert(newNode.ListNext == null);
+            Debug.Assert(EqualsNull(newNode.ListPrevious));
+            Debug.Assert(EqualsNull(newNode.ListNext));
 
             newNode.ListPrevious = node;
             newNode.ListNext = node.ListNext;
 
             node.ListNext = newNode;
 
-            if (newNode.ListNext != null)
+            if (!EqualsNull(newNode.ListNext))
             {
                 newNode.ListNext.ListPrevious = newNode;
             }
 
-            if (Last == node)
+            if (Equals(Last, node))
             {
                 Last = newNode;
             }
@@ -147,32 +152,46 @@ namespace ARMeilleure.IntermediateRepresentation
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Remove(T node)
         {
-            if (node.ListPrevious != null)
+            if (!EqualsNull(node.ListPrevious))
             {
                 node.ListPrevious.ListNext = node.ListNext;
             }
             else
             {
-                Debug.Assert(First == node);
+                Debug.Assert(Equals(First, node));
 
                 First = node.ListNext;
             }
 
-            if (node.ListNext != null)
+            if (!EqualsNull(node.ListNext))
             {
                 node.ListNext.ListPrevious = node.ListPrevious;
             }
             else
             {
-                Debug.Assert(Last == node);
+                Debug.Assert(Equals(Last, node));
 
                 Last = node.ListPrevious;
             }
 
-            node.ListPrevious = null;
-            node.ListNext = null;
+            node.ListPrevious = default;
+            node.ListNext = default;
 
             Count--;
+        }
+
+        private static bool EqualsNull(T a)
+        {
+            Debug.Assert(Unsafe.SizeOf<T>() == IntPtr.Size);
+
+            return Unsafe.As<T, IntPtr>(ref a) == IntPtr.Zero;
+        }
+
+        private static bool Equals(T a, T b)
+        {
+            Debug.Assert(Unsafe.SizeOf<T>() == IntPtr.Size);
+
+            return Unsafe.As<T, IntPtr>(ref a) == Unsafe.As<T, IntPtr>(ref b);
         }
     }
 }
