@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.29613.14
@@ -71,8 +71,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Ryujinx.Headless.SDL2", "Ry
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Ryujinx.Graphics.Vulkan", "Ryujinx.Graphics.Vulkan\Ryujinx.Graphics.Vulkan.csproj", "{D4D09B08-D580-4D69-B886-C35D2853F6C8}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Spv.Generator", "SpvGen\Spv.Generator.csproj", "{D0720AC9-8AE7-417C-AB39-82CE984045C4}"
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Ryujinx.Ava", "Ryujinx.Ava\Ryujinx.Ava.csproj", "{7C1B2721-13DA-4B62-B046-C626605ECCE6}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Spv.Generator", "SpvGen\Spv.Generator.csproj", "{D0720AC9-8AE7-417C-AB39-82CE984045C4}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -204,14 +205,14 @@ Global
 		{D4D09B08-D580-4D69-B886-C35D2853F6C8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D4D09B08-D580-4D69-B886-C35D2853F6C8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D4D09B08-D580-4D69-B886-C35D2853F6C8}.Release|Any CPU.Build.0 = Release|Any CPU
-		{D0720AC9-8AE7-417C-AB39-82CE984045C4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{D0720AC9-8AE7-417C-AB39-82CE984045C4}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{D0720AC9-8AE7-417C-AB39-82CE984045C4}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{D0720AC9-8AE7-417C-AB39-82CE984045C4}.Release|Any CPU.Build.0 = Release|Any CPU
 		{7C1B2721-13DA-4B62-B046-C626605ECCE6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{7C1B2721-13DA-4B62-B046-C626605ECCE6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7C1B2721-13DA-4B62-B046-C626605ECCE6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7C1B2721-13DA-4B62-B046-C626605ECCE6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D0720AC9-8AE7-417C-AB39-82CE984045C4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D0720AC9-8AE7-417C-AB39-82CE984045C4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D0720AC9-8AE7-417C-AB39-82CE984045C4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D0720AC9-8AE7-417C-AB39-82CE984045C4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
